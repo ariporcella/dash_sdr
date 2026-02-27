@@ -3,13 +3,14 @@ import pandas as pd
 import plotly.express as px
 
 # --- CONFIGURAÇÃO DE ACESSO ---
+# Suas URLs públicas do Google Sheets (formato CSV)
 URL_BASE = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ00MvebmbtmiDkGcz4OTxtGwrmmgEkJGLXARJRg6UDM001IXQRyxcMcjS35ACbN9JOF2cEzglaUZGL/pub?gid=375511285&single=true&output=csv"
 URL_VENDAS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ00MvebmbtmiDkGcz4OTxtGwrmmgEkJGLXARJRg6UDM001IXQRyxcMcjS35ACbN9JOF2cEzglaUZGL/pub?gid=1146959211&single=true&output=csv"
 URL_METAS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ00MvebmbtmiDkGcz4OTxtGwrmmgEkJGLXARJRg6UDM001IXQRyxcMcjS35ACbN9JOF2cEzglaUZGL/pub?gid=430597826&single=true&output=csv"
 
 st.set_page_config(page_title="SDR Intelligence | Global Performance", layout="wide")
 
-# --- AJUSTE DE CSS PARA OS CARDS NÃO CORTAREM OS NÚMEROS ---
+# --- AJUSTE DE CSS PARA OS CARDS ---
 st.markdown("""
     <style>
     [data-testid="stMetricValue"] {
@@ -28,10 +29,12 @@ st.markdown("""
 @st.cache_data(ttl=5)
 def load_all_data():
     try:
+        # Lê os CSVs direto da nuvem
         df_sdr = pd.read_csv(URL_BASE).fillna(0)
         df_vendas = pd.read_csv(URL_VENDAS).fillna(0)
         df_metas = pd.read_csv(URL_METAS).fillna(0)
         
+        # Limpeza de espaços em branco nos nomes das colunas e dados
         for df in [df_sdr, df_vendas, df_metas]:
             df.columns = df.columns.str.strip()
             if 'SDR' in df.columns:
@@ -58,7 +61,10 @@ if df_sdr is not None:
     sdr_sel = st.sidebar.multiselect("Selecionar SDRs", options=sdrs_globais, default=sdrs_globais)
     
     # --- PROCESSAMENTO AGREGADO ---
-    fsdr = df_sdr[(df_sdr['Mês'].isin(meses_sel)) & (df_sdr['SDR'].isin(sdr_sel))].groupby('SDR')[['Previstas', 'Agendadas', 'Realizadas']].sum().reset_index()
+    # Nota: Assumimos que 'Não Realizadas' já vem calculada do Sheets (cruzando as abas)
+    colunas_sdr = ['SDR', 'Previstas', 'Agendadas', 'Realizadas', 'Não Realizadas']
+    
+    fsdr = df_sdr[(df_sdr['Mês'].isin(meses_sel)) & (df_sdr['SDR'].isin(sdr_sel))].groupby('SDR')[['Previstas', 'Agendadas', 'Realizadas', 'Não Realizadas']].sum().reset_index()
     fvendas = df_vendas[(df_vendas['Mês'].isin(meses_sel)) & (df_vendas['SDR'].isin(sdr_sel))].groupby('SDR')['Valor'].sum().reset_index()
     fmetas = df_metas[(df_metas['Mês'].isin(meses_sel)) & (df_metas['SDR'].isin(sdr_sel))].groupby('SDR')[['Meta_Receita', 'Meta_Reunioes']].sum().reset_index()
 
@@ -66,15 +72,20 @@ if df_sdr is not None:
     receita_atual = fvendas['Valor'].sum()
     meta_receita_total = fmetas['Meta_Receita'].sum()
     meta_agendamentos_total = fmetas['Meta_Reunioes'].sum()
+    
     total_previstas = fsdr['Previstas'].sum()
     total_agendadas = fsdr['Agendadas'].sum()
     total_realizadas = fsdr['Realizadas'].sum()
+    total_nao_realizadas = fsdr['Não Realizadas'].sum()
+
+    # --- NOVO INDICADOR: FALTA PARA A META ---
+    falta_para_meta = meta_agendamentos_total - total_agendadas
 
     # --- DASHBOARD PRINCIPAL ---
     st.title(f"SDR Global Performance - {', '.join(meses_sel)}")
     
-    # Colunas proporcionais para evitar o corte
-    m1, m2, m3, m4, m5, m6, m7 = st.columns([1.5, 1.4, 1, 1, 1, 1, 1.1])
+    # Colunas proporcionais para acomodar o novo indicador
+    m1, m2, m3, m4, m5, m6, m7, m8, m9 = st.columns([1.5, 1.4, 1, 1, 1, 1, 1, 1, 1.1])
     
     m1.metric("Meta Receita", f"$ {meta_receita_total:,.2f}")
     m2.metric("Receita Atual", f"$ {receita_atual:,.2f}")
@@ -82,9 +93,13 @@ if df_sdr is not None:
     m4.metric("Previstas", int(total_previstas))
     m5.metric("Agendadas", int(total_agendadas))
     m6.metric("Realizadas", int(total_realizadas))
+    m7.metric("Não Realizadas", int(total_nao_realizadas))
+    
+    # Novo Indicador
+    m8.metric("Falta p/ Meta", int(falta_para_meta), help="Meta Reuniões - Agendadas")
     
     taxa_conv = (total_realizadas / total_previstas * 100) if total_previstas > 0 else 0
-    m7.metric("Eficiência %", f"{taxa_conv:.1f}%")
+    m9.metric("Eficiência %", f"{taxa_conv:.1f}%")
 
     st.divider()
 
@@ -96,8 +111,16 @@ if df_sdr is not None:
         
     with col_r:
         st.subheader("Funil de Atividades (Volume)")
-        st.plotly_chart(px.bar(fsdr, x='SDR', y=['Previstas', 'Agendadas', 'Realizadas'], barmode='group',
-                              color_discrete_map={'Previstas': '#94A3B8', 'Agendadas': '#6366F1', 'Realizadas': '#48BB78'}), use_container_width=True)
+        # Gráfico atualizado para incluir "Não Realizadas"
+        fig_funil = px.bar(fsdr, x='SDR', y=['Previstas', 'Agendadas', 'Realizadas', 'Não Realizadas'], 
+                           barmode='group',
+                           color_discrete_map={
+                               'Previstas': '#94A3B8', 
+                               'Agendadas': '#6366F1', 
+                               'Realizadas': '#48BB78',
+                               'Não Realizadas': '#EF4444'
+                           })
+        st.plotly_chart(fig_funil, use_container_width=True)
 
     # --- TABELA DETALHADA ---
     st.subheader("Detalhamento de Performance")
@@ -110,7 +133,8 @@ if df_sdr is not None:
         tabela_disp[col] = tabela_disp[col].apply(lambda x: f"$ {x:,.2f}")
     tabela_disp['% Conv.'] = tabela_disp['% Conv.'].apply(lambda x: f"{x:.1f}%")
     
-    cols_view = ['SDR', 'Meta_Reunioes', 'Previstas', 'Agendadas', 'Realizadas', '% Conv.', 'Meta_Receita', 'Valor']
+    # Colunas view atualizadas
+    cols_view = ['SDR', 'Meta_Reunioes', 'Previstas', 'Agendadas', 'Realizadas', 'Não Realizadas', '% Conv.', 'Meta_Receita', 'Valor']
     st.dataframe(tabela_disp[cols_view], use_container_width=True, hide_index=True)
 
 else:
