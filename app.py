@@ -61,10 +61,7 @@ if df_sdr is not None:
     sdr_sel = st.sidebar.multiselect("Selecionar SDRs", options=sdrs_globais, default=sdrs_globais)
     
     # --- PROCESSAMENTO AGREGADO ---
-    # Nota: Assumimos que 'Não Realizadas' já vem calculada do Sheets (cruzando as abas)
-    colunas_sdr = ['SDR', 'Previstas', 'Agendadas', 'Realizadas', 'Não Realizadas']
-    
-    fsdr = df_sdr[(df_sdr['Mês'].isin(meses_sel)) & (df_sdr['SDR'].isin(sdr_sel))].groupby('SDR')[['Previstas', 'Agendadas', 'Realizadas', 'Não Realizadas']].sum().reset_index()
+    fsdr = df_sdr[(df_sdr['Mês'].isin(meses_sel)) & (df_sdr['SDR'].isin(sdr_sel))].groupby('SDR')[['Previstas', 'Agendadas', 'Realizadas']].sum().reset_index()
     fvendas = df_vendas[(df_vendas['Mês'].isin(meses_sel)) & (df_vendas['SDR'].isin(sdr_sel))].groupby('SDR')['Valor'].sum().reset_index()
     fmetas = df_metas[(df_metas['Mês'].isin(meses_sel)) & (df_metas['SDR'].isin(sdr_sel))].groupby('SDR')[['Meta_Receita', 'Meta_Reunioes']].sum().reset_index()
 
@@ -76,16 +73,15 @@ if df_sdr is not None:
     total_previstas = fsdr['Previstas'].sum()
     total_agendadas = fsdr['Agendadas'].sum()
     total_realizadas = fsdr['Realizadas'].sum()
-    total_nao_realizadas = fsdr['Não Realizadas'].sum()
 
-    # --- NOVO INDICADOR: FALTA PARA A META ---
+    # --- INDICADOR: FALTA PARA A META ---
     falta_para_meta = meta_agendamentos_total - total_agendadas
 
     # --- DASHBOARD PRINCIPAL ---
     st.title(f"SDR Global Performance - {', '.join(meses_sel)}")
     
-    # Colunas proporcionais para acomodar o novo indicador
-    m1, m2, m3, m4, m5, m6, m7, m8, m9 = st.columns([1.5, 1.4, 1, 1, 1, 1, 1, 1, 1.1])
+    # Colunas proporcionais ajustadas para remover 'Não Realizadas'
+    m1, m2, m3, m4, m5, m6, m7, m8 = st.columns([1.5, 1.4, 1, 1, 1, 1, 1, 1.1])
     
     m1.metric("Meta Receita", f"$ {meta_receita_total:,.2f}")
     m2.metric("Receita Atual", f"$ {receita_atual:,.2f}")
@@ -93,13 +89,12 @@ if df_sdr is not None:
     m4.metric("Previstas", int(total_previstas))
     m5.metric("Agendadas", int(total_agendadas))
     m6.metric("Realizadas", int(total_realizadas))
-    m7.metric("Não Realizadas", int(total_nao_realizadas))
     
-    # Novo Indicador
-    m8.metric("Falta p/ Meta", int(falta_para_meta), help="Meta Reuniões - Agendadas")
+    # Indicador de falta para meta
+    m7.metric("Falta p/ Meta", int(falta_para_meta), help="Meta Reuniões - Agendadas")
     
     taxa_conv = (total_realizadas / total_previstas * 100) if total_previstas > 0 else 0
-    m9.metric("Eficiência %", f"{taxa_conv:.1f}%")
+    m8.metric("Eficiência %", f"{taxa_conv:.1f}%")
 
     st.divider()
 
@@ -111,14 +106,13 @@ if df_sdr is not None:
         
     with col_r:
         st.subheader("Funil de Atividades (Volume)")
-        # Gráfico atualizado para incluir "Não Realizadas"
-        fig_funil = px.bar(fsdr, x='SDR', y=['Previstas', 'Agendadas', 'Realizadas', 'Não Realizadas'], 
+        # Gráfico mantido apenas com as métricas principais
+        fig_funil = px.bar(fsdr, x='SDR', y=['Previstas', 'Agendadas', 'Realizadas'], 
                            barmode='group',
                            color_discrete_map={
                                'Previstas': '#94A3B8', 
                                'Agendadas': '#6366F1', 
-                               'Realizadas': '#48BB78',
-                               'Não Realizadas': '#EF4444'
+                               'Realizadas': '#48BB78'
                            })
         st.plotly_chart(fig_funil, use_container_width=True)
 
@@ -133,8 +127,8 @@ if df_sdr is not None:
         tabela_disp[col] = tabela_disp[col].apply(lambda x: f"$ {x:,.2f}")
     tabela_disp['% Conv.'] = tabela_disp['% Conv.'].apply(lambda x: f"{x:.1f}%")
     
-    # Colunas view atualizadas
-    cols_view = ['SDR', 'Meta_Reunioes', 'Previstas', 'Agendadas', 'Realizadas', 'Não Realizadas', '% Conv.', 'Meta_Receita', 'Valor']
+    # Colunas view atualizadas para remover 'Não Realizadas'
+    cols_view = ['SDR', 'Meta_Reunioes', 'Previstas', 'Agendadas', 'Realizadas', '% Conv.', 'Meta_Receita', 'Valor']
     st.dataframe(tabela_disp[cols_view], use_container_width=True, hide_index=True)
 
 else:
