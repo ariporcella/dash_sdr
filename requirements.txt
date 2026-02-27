@@ -1,5 +1,3 @@
-requirement.text
-
 streamlit
 pandas
 plotly
