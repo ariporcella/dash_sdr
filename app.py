@@ -3,14 +3,13 @@ import pandas as pd
 import plotly.express as px
 
 # --- CONFIGURAÇÃO DE ACESSO ---
-# Suas URLs estão corretas, apontando para o CSV na nuvem
 URL_BASE = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ00MvebmbtmiDkGcz4OTxtGwrmmgEkJGLXARJRg6UDM001IXQRyxcMcjS35ACbN9JOF2cEzglaUZGL/pub?gid=375511285&single=true&output=csv"
 URL_VENDAS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ00MvebmbtmiDkGcz4OTxtGwrmmgEkJGLXARJRg6UDM001IXQRyxcMcjS35ACbN9JOF2cEzglaUZGL/pub?gid=1146959211&single=true&output=csv"
 URL_METAS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ00MvebmbtmiDkGcz4OTxtGwrmmgEkJGLXARJRg6UDM001IXQRyxcMcjS35ACbN9JOF2cEzglaUZGL/pub?gid=430597826&single=true&output=csv"
 
 st.set_page_config(page_title="SDR Intelligence | Global Performance", layout="wide")
 
-# --- CSS PARA OS CARDS ---
+# --- AJUSTE DE CSS ---
 st.markdown("""
     <style>
     [data-testid="stMetricValue"] {font-size: 1.6vw !important;}
@@ -53,20 +52,23 @@ if df_sdr is not None:
     
     # --- PROCESSAMENTO AGREGADO E CÁLCULO DE NÃO REALIZADAS ---
     
-    # Filtra dados
+    # Filtra dados iniciais
     fsdr = df_sdr[(df_sdr['Mês'].isin(meses_sel)) & (df_sdr['SDR'].isin(sdr_sel))].copy()
     fvendas = df_vendas[(df_vendas['Mês'].isin(meses_sel)) & (df_vendas['SDR'].isin(sdr_sel))].groupby('SDR')['Valor'].sum().reset_index()
     fmetas = df_metas[(df_metas['Mês'].isin(meses_sel)) & (df_metas['SDR'].isin(sdr_sel))].groupby('SDR')[['Meta_Receita', 'Meta_Reunioes']].sum().reset_index()
 
-    # Lógica: Não realizadas = Canceladas + No-show
-    # Verifica se as colunas existem antes de calcular para evitar erro
+    # --- AQUI ESTÁ O AJUSTE PRINCIPAL ---
+    # Verifica se as colunas necessárias para o cálculo existem no CSV
     cols_necessarias = ['Previstas', 'Agendadas', 'Realizadas', 'Canceladas', 'No-show']
+    
     if all(col in fsdr.columns for col in cols_necessarias):
+        # 1. Cria a coluna calculada "Não Realizadas" dentro do Python
         fsdr['Não Realizadas'] = fsdr['Canceladas'] + fsdr['No-show']
-        # Agrupa após calcular a nova coluna
+        
+        # 2. Agrupa os dados agora com a nova coluna calculada
         fsdr_grouped = fsdr.groupby('SDR')[['Previstas', 'Agendadas', 'Realizadas', 'Não Realizadas']].sum().reset_index()
     else:
-        st.error(f"Colunas faltantes no Sheets: {cols_necessarias}")
+        st.error(f"Colunas faltantes no Sheets para o cálculo: {cols_necessarias}")
         st.stop()
 
     # --- CÁLCULOS TOTAIS AGREGADOS ---
@@ -77,12 +79,12 @@ if df_sdr is not None:
     total_previstas = fsdr_grouped['Previstas'].sum()
     total_agendadas = fsdr_grouped['Agendadas'].sum()
     total_realizadas = fsdr_grouped['Realizadas'].sum()
-    total_nao_realizadas = fsdr_grouped['Não Realizadas'].sum()
+    total_nao_realizadas = fsdr_grouped['Não Realizadas'].sum() # Soma da nova coluna
 
     # --- DASHBOARD PRINCIPAL ---
     st.title(f"SDR Global Performance - {', '.join(meses_sel)}")
     
-    # Ajuste nas colunas para caber a nova métrica
+    # 8 colunas agora para acomodar a nova métrica
     m1, m2, m3, m4, m5, m6, m7, m8 = st.columns(8)
     
     m1.metric("Meta Receita", f"$ {meta_receita_total:,.2f}")
@@ -91,7 +93,7 @@ if df_sdr is not None:
     m4.metric("Previstas", int(total_previstas))
     m5.metric("Agendadas", int(total_agendadas))
     m6.metric("Realizadas", int(total_realizadas))
-    m7.metric("Não Realizadas", int(total_nao_realizadas)) # Nova métrica
+    m7.metric("Não Realizadas", int(total_nao_realizadas)) # Novo card
     
     taxa_conv = (total_realizadas / total_previstas * 100) if total_previstas > 0 else 0
     m8.metric("Eficiência %", f"{taxa_conv:.1f}%")
@@ -113,7 +115,7 @@ if df_sdr is not None:
                                'Previstas': '#94A3B8', 
                                'Agendadas': '#6366F1', 
                                'Realizadas': '#48BB78',
-                               'Não Realizadas': '#EF4444' # Cor vermelha para não realizadas
+                               'Não Realizadas': '#EF4444' # Vermelho para alerta
                            })
         st.plotly_chart(fig_funil, use_container_width=True)
 
@@ -128,7 +130,7 @@ if df_sdr is not None:
         tabela_disp[col] = tabela_disp[col].apply(lambda x: f"$ {x:,.2f}")
     tabela_disp['% Conv.'] = tabela_disp['% Conv.'].apply(lambda x: f"{x:.1f}%")
     
-    # Atualizado para incluir Não Realizadas na tabela
+    # Colunas view atualizadas
     cols_view = ['SDR', 'Meta_Reunioes', 'Previstas', 'Agendadas', 'Realizadas', 'Não Realizadas', '% Conv.', 'Meta_Receita', 'Valor']
     st.dataframe(tabela_disp[cols_view], use_container_width=True, hide_index=True)
 
