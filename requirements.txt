@@ -1,4 +1,4 @@
-requirement.text.
+requirement.text
 
 streamlit
 pandas
