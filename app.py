@@ -1,124 +1,149 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
+import numpy as np
 
 # --- CONFIGURAÇÃO DE ACESSO ---
-# Suas URLs públicas do Google Sheets (formato CSV)
 URL_BASE = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ00MvebmbtmiDkGcz4OTxtGwrmmgEkJGLXARJRg6UDM001IXQRyxcMcjS35ACbN9JOF2cEzglaUZGL/pub?gid=375511285&single=true&output=csv"
 URL_VENDAS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ00MvebmbtmiDkGcz4OTxtGwrmmgEkJGLXARJRg6UDM001IXQRyxcMcjS35ACbN9JOF2cEzglaUZGL/pub?gid=1146959211&single=true&output=csv"
 URL_METAS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ00MvebmbtmiDkGcz4OTxtGwrmmgEkJGLXARJRg6UDM001IXQRyxcMcjS35ACbN9JOF2cEzglaUZGL/pub?gid=430597826&single=true&output=csv"
+URL_MQL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ00MvebmbtmiDkGcz4OTxtGwrmmgEkJGLXARJRg6UDM001IXQRyxcMcjS35ACbN9JOF2cEzglaUZGL/pub?gid=1454439067&single=true&output=csv"
 
-st.set_page_config(page_title="SDR Intelligence | Global Performance", layout="wide")
+st.set_page_config(page_title="SDR Intelligence", layout="wide")
 
-# --- AJUSTE DE CSS PARA OS CARDS ---
+# --- CSS PARA VISUAL HIGH-TECH DARK MODE ---
 st.markdown("""
     <style>
-    [data-testid="stMetricValue"] {
-        font-size: 1.6vw !important;
-    }
-    [data-testid="stMetricLabel"] {
-        font-size: 0.85vw !important;
-    }
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 0rem;
-    }
+    .stApp { background-color: #0E1117; }
+    html, body, [class*="css"] { font-family: 'Roboto', sans-serif; }
+    div[data-testid="stMetricValue"] { font-size: 2vw !important; color: #FFFFFF !important; font-weight: bold; }
+    div[data-testid="stMetricLabel"] { font-size: 0.9vw !important; color: #8B949E !important; }
+    div[data-testid="stMetric"] { background-color: #161B22; padding: 15px; border-radius: 10px; border: 1px solid #30363D; }
+    h1, h2, h3 { color: #FFFFFF !important; }
+    .block-container { padding-top: 1rem; }
+    [data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; border: 1px solid #30363D; }
     </style>
     """, unsafe_allow_html=True)
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=60)
 def load_all_data():
     try:
-        # Lê os CSVs direto da nuvem
         df_sdr = pd.read_csv(URL_BASE).fillna(0)
         df_vendas = pd.read_csv(URL_VENDAS).fillna(0)
         df_metas = pd.read_csv(URL_METAS).fillna(0)
-        
-        # Limpeza de espaços em branco nos nomes das colunas e dados
-        for df in [df_sdr, df_vendas, df_metas]:
+        df_mql = pd.read_csv(URL_MQL).fillna(0)
+        for df in [df_sdr, df_vendas, df_metas, df_mql]:
             df.columns = df.columns.str.strip()
-            if 'SDR' in df.columns:
-                df['SDR'] = df['SDR'].astype(str).str.strip()
-            if 'Mês' in df.columns:
-                df['Mês'] = df['Mês'].astype(str).str.strip()
-            
-        return df_sdr, df_vendas, df_metas
+        if 'Mês' in df_mql.columns:
+            df_mql['Mês'] = df_mql['Mês'].astype(str).str.strip()
+        return df_sdr, df_vendas, df_metas, df_mql
     except Exception as e:
         st.error(f"Erro ao sincronizar dados: {e}")
-        return None, None, None
+        return None, None, None, None
 
-df_sdr, df_vendas, df_metas = load_all_data()
+df_sdr, df_vendas, df_metas, df_mql = load_all_data()
 
 if df_sdr is not None:
-    # --- FILTROS ---
-    st.sidebar.header("Filtros de Visão")
+    # --- FILTROS LATERAIS (DARK THEME) ---
+    st.sidebar.markdown("## ⚙️ Configurações")
     meses_disponiveis = sorted([str(m) for m in df_sdr['Mês'].unique() if pd.notna(m) and m != '0'])
     mes_padrao = [meses_disponiveis[-1]] if meses_disponiveis else []
     meses_sel = st.sidebar.multiselect("Selecionar Meses", options=meses_disponiveis, default=mes_padrao)
-    
     todos_sdrs = pd.concat([df_sdr['SDR'], df_metas['SDR'], df_vendas['SDR']]).unique()
     sdrs_globais = sorted([str(s) for s in todos_sdrs if pd.notna(s) and s not in ['0', 'nan', '0.0']])
     sdr_sel = st.sidebar.multiselect("Selecionar SDRs", options=sdrs_globais, default=sdrs_globais)
+    st.sidebar.markdown("---")
+    meses_mql = sorted(df_mql['Mês'].unique())
+    mes_mql_sel = st.sidebar.selectbox("Filtro MQL (Mês)", options=meses_mql)
     
-    # --- PROCESSAMENTO AGREGADO ---
+    # --- PROCESSAMENTO ---
     fsdr = df_sdr[(df_sdr['Mês'].isin(meses_sel)) & (df_sdr['SDR'].isin(sdr_sel))].groupby('SDR')[['Previstas', 'Agendadas', 'Realizadas']].sum().reset_index()
     fvendas = df_vendas[(df_vendas['Mês'].isin(meses_sel)) & (df_vendas['SDR'].isin(sdr_sel))].groupby('SDR')['Valor'].sum().reset_index()
     fmetas = df_metas[(df_metas['Mês'].isin(meses_sel)) & (df_metas['SDR'].isin(sdr_sel))].groupby('SDR')[['Meta_Receita', 'Meta_Reunioes']].sum().reset_index()
-
-    # --- CÁLCULOS TOTAIS AGREGADOS ---
-    receita_atual = fvendas['Valor'].sum()
-    meta_receita_total = fmetas['Meta_Receita'].sum()
-    meta_agendamentos_total = fmetas['Meta_Reunioes'].sum()
-    
-    total_previstas = fsdr['Previstas'].sum()
-    total_agendadas = fsdr['Agendadas'].sum()
-    total_realizadas = fsdr['Realizadas'].sum()
-
-    # --- INDICADOR: FALTA PARA A META ---
-    falta_para_meta = meta_agendamentos_total - total_agendadas
+    df_mql_mes = df_mql[df_mql['Mês'] == mes_mql_sel]
 
     # --- DASHBOARD PRINCIPAL ---
-    st.title(f"SDR Global Performance - {', '.join(meses_sel)}")
+    st.title("⚡ SDR Global Performance")
+    st.markdown("---")
     
-    # Colunas proporcionais ajustadas para remover 'Não Realizadas'
-    m1, m2, m3, m4, m5, m6, m7, m8 = st.columns([1.5, 1.4, 1, 1, 1, 1, 1, 1.1])
-    
-    m1.metric("Meta Receita", f"$ {meta_receita_total:,.2f}")
-    m2.metric("Receita Atual", f"$ {receita_atual:,.2f}")
-    m3.metric("Meta Reuniões", int(meta_agendamentos_total))
-    m4.metric("Previstas", int(total_previstas))
-    m5.metric("Agendadas", int(total_agendadas))
-    m6.metric("Realizadas", int(total_realizadas))
-    
-    # Indicador de falta para meta
-    m7.metric("Falta p/ Meta", int(falta_para_meta), help="Meta Reuniões - Agendadas")
-    
-    taxa_conv = (total_realizadas / total_previstas * 100) if total_previstas > 0 else 0
-    m8.metric("Eficiência %", f"{taxa_conv:.1f}%")
+    # --- SEÇÃO 1: MÉTRICAS PRINCIPAIS ---
+    st.subheader("Visão Geral")
+    m1, m2, m3, m4 = st.columns(4)
+    receita_atual = fvendas['Valor'].sum()
+    meta_receita_total = fmetas['Meta_Receita'].sum()
+    total_agendadas = fsdr['Agendadas'].sum()
+    total_realizadas = fsdr['Realizadas'].sum()
+    taxa_conv = (total_realizadas / fsdr['Previstas'].sum() * 100) if fsdr['Previstas'].sum() > 0 else 0
+    m1.metric("Receita Atual", f"$ {receita_atual:,.2f}")
+    m2.metric("Meta Receita", f"$ {meta_receita_total:,.2f}")
+    m3.metric("Agendamentos", int(total_agendadas))
+    m4.metric("Eficiência %", f"{taxa_conv:.1f}%")
 
-    st.divider()
+    st.markdown("---")
+    
+    # --- SEÇÃO 2: TOP PERFORMERS - CARDS ESTILO FIFA ---
+    st.markdown("## 🏆 Top Performers - Player Cards")
+    
+    top3_data = fmetas.merge(fsdr, on='SDR', how='outer').merge(fvendas, on='SDR', how='outer').fillna(0)
+    
+    # Normalização para escala 0-100
+    max_realizadas = top3_data['Realizadas'].max() if top3_data['Realizadas'].max() > 0 else 1
+    max_agendadas = top3_data['Agendadas'].max() if top3_data['Agendadas'].max() > 0 else 1
+    max_valor = top3_data['Valor'].max() if top3_data['Valor'].max() > 0 else 1
+    
+    top3_data['Pitch'] = (top3_data['Realizadas'] / max_realizadas * 100)
+    top3_data['Qualif'] = (top3_data['Agendadas'] / max_agendadas * 100)
+    top3_data['Conversão'] = (top3_data['Realizadas'] / top3_data['Previstas'].replace(0, 1) * 100)
+    top3_data['Fechamento'] = (top3_data['Valor'] / max_valor * 100)
+    
+    # Score Geral
+    top3_data['ScoreGeral'] = (top3_data['Pitch'] * 0.3 + top3_data['Qualif'] * 0.2 + top3_data['Conversão'] * 0.3 + top3_data['Fechamento'] * 0.2).astype(int)
+    top3 = top3_data.sort_values(by='ScoreGeral', ascending=False).head(3)
+    
+    col1, col2, col3 = st.columns(3)
+    cols = [col1, col2, col3]
 
-    # Linha 2: Gráficos
-    col_l, col_r = st.columns(2)
-    with col_l:
-        st.subheader("Receita por SDR (USD)")
-        st.plotly_chart(px.bar(fvendas, x='SDR', y='Valor', text_auto='$.2s', color_discrete_sequence=['#00CC96']), use_container_width=True)
-        
-    with col_r:
-        st.subheader("Funil de Atividades (Volume)")
-        # Gráfico mantido apenas com as métricas principais
-        fig_funil = px.bar(fsdr, x='SDR', y=['Previstas', 'Agendadas', 'Realizadas'], 
-                           barmode='group',
-                           color_discrete_map={
-                               'Previstas': '#94A3B8', 
-                               'Agendadas': '#6366F1', 
-                               'Realizadas': '#48BB78'
-                           })
-        st.plotly_chart(fig_funil, use_container_width=True)
+    for i, (_, row) in enumerate(top3.iterrows()):
+        with cols[i]:
+            st.markdown(f"""
+                <div style="background: linear-gradient(135deg, #161B22 0%, #30363D 100%); padding: 20px; border-radius: 20px; text-align: center; border: 3px solid {'#FFD700' if i==0 else '#C0C0C0' if i==1 else '#CD7F32'}; box-shadow: 5px 5px 15px rgba(0,0,0,0.5);">
+                    <div style="display: flex; justify-content: space-between; color: white; font-weight: bold; font-size: 1.2vw;">
+                        <span>{row['ScoreGeral']}</span>
+                        <span>ST</span>
+                    </div>
+                    <div style="font-size: 1.5vw; font-weight: bold; color: white; margin-top: 10px;">{row['SDR']}</div>
+                    <hr style="border-color: #4D4D4D; margin: 10px 0;">
+                </div>
+            """, unsafe_allow_html=True)
+            
+            categories = ['Pitch', 'Qualif', 'Conversão', 'Fechamento']
+            fig = go.Figure()
+            fig.add_trace(go.Scatterpolar(
+                r=[row['Pitch'], row['Qualif'], row['Conversão'], row['Fechamento']],
+                theta=categories,
+                fill='toself',
+                fillcolor='rgba(0, 204, 150, 0.5)',
+                line=dict(color='#00CC96'),
+                name=row['SDR']
+            ))
+            fig.update_layout(
+                polar=dict(radialaxis=dict(visible=True, range=[0, 100], gridcolor='#30363D', linecolor='#30363D'),
+                           angularaxis=dict(gridcolor='#30363D', linecolor='#30363D'),
+                           bgcolor='#161B22'),
+                paper_bgcolor='rgba(0,0,0,0)',
+                font_color='white',
+                margin=dict(l=40, r=40, t=20, b=20),
+                height=300
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            st.write(" ")
 
-    # --- TABELA DETALHADA ---
-    st.subheader("Detalhamento de Performance")
-    tabela_final = fmetas.merge(fsdr, on='SDR', how='outer').merge(fvendas, on='SDR', how='outer').fillna(0)
+    st.markdown("---")
+
+    # --- SEÇÃO 3: TABELA DETALHADA ---
+    st.subheader("Detalhamento de Performance SDRs")
+    tabela_final = top3_data.copy()
     tabela_final = tabela_final[tabela_final['SDR'].isin(sdr_sel)]
     tabela_final['% Conv.'] = (tabela_final['Realizadas'] / tabela_final['Previstas'] * 100).fillna(0)
     
@@ -127,9 +152,57 @@ if df_sdr is not None:
         tabela_disp[col] = tabela_disp[col].apply(lambda x: f"$ {x:,.2f}")
     tabela_disp['% Conv.'] = tabela_disp['% Conv.'].apply(lambda x: f"{x:.1f}%")
     
-    # Colunas view atualizadas para remover 'Não Realizadas'
     cols_view = ['SDR', 'Meta_Reunioes', 'Previstas', 'Agendadas', 'Realizadas', '% Conv.', 'Meta_Receita', 'Valor']
     st.dataframe(tabela_disp[cols_view], use_container_width=True, hide_index=True)
+    
+    st.markdown("---")
+    
+    # --- SEÇÃO 4: GRÁFICOS MODERNOS (PLOTLY) ---
+    col_l, col_r = st.columns(2)
+    
+    with col_l:
+        st.subheader("Receita por SDR")
+        fig_bar = px.bar(fvendas, x='SDR', y='Valor', color='Valor', 
+                         color_continuous_scale='Viridis', text_auto='$.2s')
+        fig_bar.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                              font_color='white', xaxis_tickangle=-45)
+        st.plotly_chart(fig_bar, use_container_width=True)
+        
+    with col_r:
+        st.subheader("Funil de Atividades")
+        fig_funil = go.Figure()
+        fig_funil.add_trace(go.Bar(name='Previstas', x=fsdr['SDR'], y=fsdr['Previstas'], marker_color='#30363D'))
+        fig_funil.add_trace(go.Bar(name='Agendadas', x=fsdr['SDR'], y=fsdr['Agendadas'], marker_color='#58A6FF'))
+        fig_funil.add_trace(go.Bar(name='Realizadas', x=fsdr['SDR'], y=fsdr['Realizadas'], marker_color='#00CC96'))
+        fig_funil.update_layout(barmode='group', plot_bgcolor='rgba(0,0,0,0)', 
+                                paper_bgcolor='rgba(0,0,0,0)', font_color='white')
+        st.plotly_chart(fig_funil, use_container_width=True)
 
+    st.markdown("---")
+    
+    # --- SEÇÃO 5: RAIOX MQL (Métricas destacadas) ---
+    st.header(f"🎯 RaioX MQL: Qualidade do Marketing - {mes_mql_sel}")
+    
+    mql_total = df_mql_mes['Entrada MQL'].sum()
+    termos_lost = ['Perfil fraco', 'Curioso', 'Sem interesse', 'COLD', 'não estava interessado']
+    df_lost = df_mql_mes[df_mql_mes['Motivo da perda'].str.contains('|'.join(termos_lost), na=False, case=False)]
+    lost_total = len(df_lost)
+    
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Entrada MQL", int(mql_total))
+    k2.metric("Leads Lost", lost_total)
+    
+    qualidade_mkt = ((mql_total - lost_total) / mql_total * 100) if mql_total > 0 else 0
+    k3.metric("Indice de Aproveitamento", f"{qualidade_mkt:.1f}%")
+
+    if not df_lost.empty:
+        st.subheader("Detalhamento Perdas (Qtd)")
+        contagem_motivos = df_lost['Motivo da perda'].value_counts()
+        cols = st.columns(len(contagem_motivos))
+        for i, (motivo, quantidade) in enumerate(contagem_motivos.items()):
+            with cols[i]:
+                st.metric(label=motivo, value=int(quantidade))
+    else:
+        st.success("Nenhum lead desqualificado registrado neste mês!")
 else:
     st.info("Conectando aos dados...")
