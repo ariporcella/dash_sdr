@@ -35,6 +35,7 @@ def load_all_data():
         df_mql = pd.read_csv(URL_MQL).fillna(0)
         for df in [df_sdr, df_vendas, df_metas, df_mql]:
             df.columns = df.columns.str.strip()
+        # Garante que a coluna Mês exista e seja string para comparação
         if 'Mês' in df_mql.columns:
             df_mql['Mês'] = df_mql['Mês'].astype(str).str.strip()
         return df_sdr, df_vendas, df_metas, df_mql
@@ -49,19 +50,22 @@ if df_sdr is not None:
     st.sidebar.markdown("## ⚙️ Configurações")
     meses_disponiveis = sorted([str(m) for m in df_sdr['Mês'].unique() if pd.notna(m) and m != '0'])
     mes_padrao = [meses_disponiveis[-1]] if meses_disponiveis else []
+    
+    # FILTRO ÚNICO PARA TODO O DASHBOARD (INCLUINDO MQL)
     meses_sel = st.sidebar.multiselect("Selecionar Meses", options=meses_disponiveis, default=mes_padrao)
+    
     todos_sdrs = pd.concat([df_sdr['SDR'], df_metas['SDR'], df_vendas['SDR']]).unique()
     sdrs_globais = sorted([str(s) for s in todos_sdrs if pd.notna(s) and s not in ['0', 'nan', '0.0']])
     sdr_sel = st.sidebar.multiselect("Selecionar SDRs", options=sdrs_globais, default=sdrs_globais)
     st.sidebar.markdown("---")
-    meses_mql = sorted(df_mql['Mês'].unique())
-    mes_mql_sel = st.sidebar.selectbox("Filtro MQL (Mês)", options=meses_mql)
     
     # --- PROCESSAMENTO ---
     fsdr = df_sdr[(df_sdr['Mês'].isin(meses_sel)) & (df_sdr['SDR'].isin(sdr_sel))].groupby('SDR')[['Previstas', 'Agendadas', 'Realizadas']].sum().reset_index()
     fvendas = df_vendas[(df_vendas['Mês'].isin(meses_sel)) & (df_vendas['SDR'].isin(sdr_sel))].groupby('SDR')['Valor'].sum().reset_index()
-    fmetas = df_metas[(df_metas['Mês'].isin(meses_sel)) & (df_metas['SDR'].isin(sdr_sel))].groupby('SDR')[['Meta_Receita', 'Meta_Reunioes']].sum().reset_index()
-    df_mql_mes = df_mql[df_mql['Mês'] == mes_mql_sel]
+    fmetas = df_metas[(df_metas['Mês'].isin(meses_sel)) & (df_mql['SDR'].isin(sdr_sel))].groupby('SDR')[['Meta_Receita', 'Meta_Reunioes']].sum().reset_index()
+    
+    # CORREÇÃO: MQL AGORA USA O MESMO FILTRO DE MESES DA BARRA LATERAL
+    df_mql_filtrado = df_mql[df_mql['Mês'].isin(meses_sel)]
 
     # --- DASHBOARD PRINCIPAL ---
     st.title("⚡ SDR Global Performance")
@@ -145,7 +149,7 @@ if df_sdr is not None:
     st.subheader("Detalhamento de Performance SDRs")
     tabela_final = top3_data.copy()
     tabela_final = tabela_final[tabela_final['SDR'].isin(sdr_sel)]
-    tabela_final['% Conv.'] = (tabela_final['Realizadas'] / tabela_final['Previstas'] * 100).fillna(0)
+    tabela_final['% Conv.'] = (tabela_final['Realizadas'] / tabela_final['Previstas'].replace(0, 1) * 100).fillna(0)
     
     tabela_disp = tabela_final.copy()
     for col in ['Meta_Receita', 'Valor']:
@@ -181,28 +185,16 @@ if df_sdr is not None:
     st.markdown("---")
     
     # --- SEÇÃO 5: RAIOX MQL (Métricas destacadas) ---
-    st.header(f"🎯 RaioX MQL: Qualidade do Marketing - {mes_mql_sel}")
+    # AGORA MOSTRA O MÊS SELECIONADO NO FILTRO
+    st.header(f"🎯 RaioX MQL: Qualidade do Marketing - {', '.join(meses_sel)}")
     
-    mql_total = df_mql_mes['Entrada MQL'].sum()
+    mql_total = df_mql_filtrado['Entrada MQL'].sum()
     termos_lost = ['Perfil fraco', 'Curioso', 'Sem interesse', 'COLD', 'não estava interessado']
-    df_lost = df_mql_mes[df_mql_mes['Motivo da perda'].str.contains('|'.join(termos_lost), na=False, case=False)]
+    df_lost = df_mql_filtrado[df_mql_filtrado['Motivo da perda'].str.contains('|'.join(termos_lost), na=False, case=False)]
     lost_total = len(df_lost)
     
     k1, k2, k3 = st.columns(3)
     k1.metric("Entrada MQL", int(mql_total))
     k2.metric("Leads Lost", lost_total)
     
-    qualidade_mkt = ((mql_total - lost_total) / mql_total * 100) if mql_total > 0 else 0
-    k3.metric("Indice de Aproveitamento", f"{qualidade_mkt:.1f}%")
-
-    if not df_lost.empty:
-        st.subheader("Detalhamento Perdas (Qtd)")
-        contagem_motivos = df_lost['Motivo da perda'].value_counts()
-        cols = st.columns(len(contagem_motivos))
-        for i, (motivo, quantidade) in enumerate(contagem_motivos.items()):
-            with cols[i]:
-                st.metric(label=motivo, value=int(quantidade))
-    else:
-        st.success("Nenhum lead desqualificado registrado neste mês!")
-else:
-    st.info("Conectando aos dados...")
+    qualidade_mkt = ((mql_
