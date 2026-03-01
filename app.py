@@ -62,9 +62,9 @@ if df_sdr is not None:
     # --- PROCESSAMENTO ---
     fsdr = df_sdr[(df_sdr['Mês'].isin(meses_sel)) & (df_sdr['SDR'].isin(sdr_sel))].groupby('SDR')[['Previstas', 'Agendadas', 'Realizadas']].sum().reset_index()
     fvendas = df_vendas[(df_vendas['Mês'].isin(meses_sel)) & (df_vendas['SDR'].isin(sdr_sel))].groupby('SDR')['Valor'].sum().reset_index()
-    fmetas = df_metas[(df_metas['Mês'].isin(meses_sel)) & (df_mql['SDR'].isin(sdr_sel))].groupby('SDR')[['Meta_Receita', 'Meta_Reunioes']].sum().reset_index()
+    fmetas = df_metas[(df_metas['Mês'].isin(meses_sel)) & (df_metas['SDR'].isin(sdr_sel))].groupby('SDR')[['Meta_Receita', 'Meta_Reunioes']].sum().reset_index()
     
-    # CORREÇÃO: MQL AGORA USA O MESMO FILTRO DE MESES DA BARRA LATERAL
+    # CORREÇÃO: MQL AGORA USA O MESMO FILTRO DE MESES
     df_mql_filtrado = df_mql[df_mql['Mês'].isin(meses_sel)]
 
     # --- DASHBOARD PRINCIPAL ---
@@ -197,4 +197,18 @@ if df_sdr is not None:
     k1.metric("Entrada MQL", int(mql_total))
     k2.metric("Leads Lost", lost_total)
     
-    qualidade_mkt = ((mql_
+    # --- CORREÇÃO DA LINHA 200: FECHAMENTO DOS PARENTESES ---
+    qualidade_mkt = ((mql_total - lost_total) / mql_total * 100) if mql_total > 0 else 0
+    k3.metric("Indice de Aproveitamento", f"{qualidade_mkt:.1f}%")
+
+    if not df_lost.empty:
+        st.subheader("Detalhamento Perdas (Qtd)")
+        contagem_motivos = df_lost['Motivo da perda'].value_counts()
+        cols = st.columns(len(contagem_motivos))
+        for i, (motivo, quantidade) in enumerate(contagem_motivos.items()):
+            with cols[i]:
+                st.metric(label=motivo, value=int(quantidade))
+    else:
+        st.success("Nenhum lead desqualificado registrado nos meses selecionados!")
+else:
+    st.info("Conectando aos dados...")
