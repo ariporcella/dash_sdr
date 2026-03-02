@@ -19,7 +19,7 @@ st.markdown("""
     <style>
     .stApp { background-color: #0E1117; }
     html, body, [class*="css"] { font-family: 'Roboto', sans-serif; }
-    div[data-testid="stMetricValue"] { font-size: 2vw !important; color: #FFFFFF !important; font-weight: bold; }
+    div[data-testid="stMetricValue"] { font-size: 1.8vw !important; color: #FFFFFF !important; font-weight: bold; }
     div[data-testid="stMetricLabel"] { font-size: 0.9vw !important; color: #8B949E !important; }
     div[data-testid="stMetric"] { background-color: #161B22; padding: 15px; border-radius: 10px; border: 1px solid #30363D; }
     h1, h2, h3 { color: #FFFFFF !important; }
@@ -79,7 +79,7 @@ if df_sdr is not None:
     # --- PROCESSAMENTO ---
     fsdr = df_sdr[(df_sdr['Mês'].isin(meses_sel)) & (df_sdr['SDR'].isin(sdr_sel))].groupby('SDR')[['Previstas', 'Agendadas', 'Realizadas']].sum().reset_index()
     fvendas = df_vendas[(df_vendas['Mês'].isin(meses_sel)) & (df_vendas['SDR'].isin(sdr_sel))].groupby('SDR')['Valor'].sum().reset_index()
-    fmetas = df_metas[(df_metas['Mês'].isin(meses_sel)) & (df_vendas['SDR'].isin(sdr_sel))].groupby('SDR')[['Meta_Receita', 'Meta_Reunioes']].sum().reset_index()
+    fmetas = df_metas[(df_metas['Mês'].isin(meses_sel)) & (df_metas['SDR'].isin(sdr_sel))].groupby('SDR')[['Meta_Receita', 'Meta_Reunioes']].sum().reset_index()
     df_mql_filtrado = df_mql[df_mql['Mês'].isin(meses_sel)]
 
     # --- DASHBOARD PRINCIPAL ---
@@ -89,8 +89,8 @@ if df_sdr is not None:
     # --- SEÇÃO 1: MÉTRICAS PRINCIPAIS ---
     st.subheader("Visão Geral")
     
-    # Ajustado para 6 colunas
-    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    # Ajustado para 7 colunas para comportar a nova info
+    m1, m2, m3, m4, m5, m6, m7 = st.columns(7)
     
     receita_atual = fvendas['Valor'].sum()
     meta_receita_total = fmetas['Meta_Receita'].sum()
@@ -102,10 +102,11 @@ if df_sdr is not None:
 
     m1.metric("Meta Receita", f"$ {meta_receita_total:,.2f}")
     m2.metric("Receita Atual", f"$ {receita_atual:,.2f}")
-    m3.metric("Meta Agendamentos", int(total_meta_reunioes))
-    m4.metric("Reuniões Previstas", int(total_previstas))
-    m5.metric("Reuniões Realizadas", int(total_realizadas_numerico)) # ATUALIZADO
-    m6.metric("Eficiência %", f"{taxa_conv:.1f}%")
+    m3.metric("Meta Agend.", int(total_meta_reunioes))
+    m4.metric("Previstas", int(total_previstas))
+    m5.metric("Agendamentos", int(total_agendadas))
+    m6.metric("Realizadas", int(total_realizadas_numerico)) # ATUALIZADO
+    m7.metric("Eficiência %", f"{taxa_conv:.1f}%")
 
     st.markdown("---")
     
