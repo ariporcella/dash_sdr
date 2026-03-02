@@ -144,46 +144,37 @@ if df_sdr is not None:
 
     st.markdown("---")
 
-    # --- SEÇÃO 3: TABELA DETALHADA COM MÉDIA DE DIAS ÚTEIS ---
+    # --- SEÇÃO 3: TABELA DETALHADA ---
     st.subheader(f"Detalhamento de Performance SDRs (Base: {total_dias_uteis} dias úteis)")
     tabela_final = top3_data[top3_data['SDR'].isin(sdr_sel)].copy()
     
-    # NOVO CÁLCULO
-    tabela_final['Média Diária'] = (tabela_final['Agendadas'] / total_dias_uteis).apply(lambda x: f"{x:.2f}")
-    
+    # CÁLCULO E FORMATAÇÃO
     tabela_final['% Conv.'] = (tabela_final['Realizadas'] / tabela_final['Previstas'].replace(0, 1) * 100).apply(lambda x: f"{x:.1f}%")
+    tabela_final['Média Diária'] = (tabela_final['Agendadas'] / total_dias_uteis).apply(lambda x: f"{x:.2f}")
     
     tabela_disp = tabela_final.copy()
     tabela_disp['Meta_Receita'] = tabela_disp['Meta_Receita'].apply(lambda x: f"$ {x:,.2f}")
     tabela_disp['Valor'] = tabela_disp['Valor'].apply(lambda x: f"$ {x:,.2f}")
     
-    cols_view = ['SDR', 'Meta_Reunioes', 'Previstas', 'Agendadas', 'Média Diária', 'Realizadas', '% Conv.', 'Meta_Receita', 'Valor']
+    # REORDENAÇÃO DAS COLUNAS SOLICITADA
+    cols_view = ['SDR', 'Meta_Reunioes', 'Previstas', 'Agendadas', 'Realizadas', '% Conv.', 'Média Diária', 'Meta_Receita', 'Valor']
     st.dataframe(tabela_disp[cols_view], use_container_width=True, hide_index=True)
     
     st.markdown("---")
     
     # --- SEÇÃO 4: GRÁFICOS ---
-    col_l, col_r = st.columns(2)
-    with col_l:
+    cl, cr = st.columns(2)
+    with cl:
         st.subheader("Receita por SDR")
-        fig_bar = px.bar(fvendas, x='SDR', y='Valor', color='Valor', 
-                         color_continuous_scale='Viridis', text_auto='$.2s')
-        fig_bar.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white', xaxis_tickangle=-45)
-        st.plotly_chart(fig_bar, use_container_width=True)
-        
-    with col_r:
+        st.plotly_chart(px.bar(fvendas, x='SDR', y='Valor', color='Valor', color_continuous_scale='Viridis', text_auto='$.2s').update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white'), use_container_width=True)
+    with cr:
         st.subheader("Funil de Atividades")
-        fig_funil = go.Figure()
-        fig_funil.add_trace(go.Bar(name='Previstas', x=fsdr['SDR'], y=fsdr['Previstas'], marker_color='#30363D'))
-        fig_funil.add_trace(go.Bar(name='Agendadas', x=fsdr['SDR'], y=fsdr['Agendadas'], marker_color='#58A6FF'))
-        fig_funil.add_trace(go.Bar(name='Realizadas', x=fsdr['SDR'], y=fsdr['Realizadas'], marker_color='#00CC96'))
-        fig_funil.update_layout(barmode='group', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white')
-        st.plotly_chart(fig_funil, use_container_width=True)
+        fig_f = go.Figure([go.Bar(name='Previstas', x=fsdr['SDR'], y=fsdr['Previstas'], marker_color='#30363D'), go.Bar(name='Agendadas', x=fsdr['SDR'], y=fsdr['Agendadas'], marker_color='#58A6FF'), go.Bar(name='Realizadas', x=fsdr['SDR'], y=fsdr['Realizadas'], marker_color='#00CC96')])
+        st.plotly_chart(fig_f.update_layout(barmode='group', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white'), use_container_width=True)
 
-    # --- SEÇÃO 5: RAIOX MQL (ATUALIZADO POR MÊS) ---
+    # --- SEÇÃO 5: RAIOX MQL ---
     st.markdown("---")
     st.header(f"🎯 RaioX MQL: Qualidade do Marketing")
-    
     mql_total = df_mql_filtrado['Entrada MQL'].sum()
     termos_lost = ['Perfil fraco', 'Curioso', 'Sem interesse', 'COLD', 'não estava interessado']
     df_lost = df_mql_filtrado[df_mql_filtrado['Motivo da perda'].str.contains('|'.join(termos_lost), na=False, case=False)]
