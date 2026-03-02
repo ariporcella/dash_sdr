@@ -3,6 +3,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
+from datetime import datetime
+import calendar
 
 # --- CONFIGURAÇÃO DE ACESSO ---
 URL_BASE = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ00MvebmbtmiDkGcz4OTxtGwrmmgEkJGLXARJRg6UDM001IXQRyxcMcjS35ACbN9JOF2cEzglaUZGL/pub?gid=375511285&single=true&output=csv"
@@ -44,6 +46,12 @@ def load_all_data():
 
 df_sdr, df_vendas, df_metas, df_mql = load_all_data()
 
+# Dicionário para converter nome do mês em número
+meses_dict = {
+    'Janeiro': 1, 'Fevereiro': 2, 'Março': 3, 'Abril': 4, 'Maio': 5, 'Junho': 6,
+    'Julho': 7, 'Agosto': 8, 'Setembro': 9, 'Outubro': 10, 'Novembro': 11, 'Dezembro': 12
+}
+
 if df_sdr is not None:
     # --- FILTROS LATERAIS ---
     st.sidebar.markdown("## ⚙️ Configurações")
@@ -57,6 +65,17 @@ if df_sdr is not None:
     sdr_sel = st.sidebar.multiselect("Selecionar SDRs", options=sdrs_globais, default=sdrs_globais)
     st.sidebar.markdown("---")
     
+    # --- CÁLCULO DE DIAS ÚTEIS ---
+    total_dias_uteis = 0
+    for m in meses_sel:
+        if m in meses_dict:
+            ano_atual = datetime.now().year
+            mes_num = meses_dict[m]
+            ultimo_dia = calendar.monthrange(ano_atual, mes_num)[1]
+            total_dias_uteis += np.busday_count(f'{ano_atual}-{mes_num:02d}-01', 
+                                                datetime(ano_atual, mes_num, ultimo_dia).strftime('%Y-%m-%d')) + 1
+    if total_dias_uteis == 0: total_dias_uteis = 1 # Evitar divisão por zero
+
     # --- PROCESSAMENTO ---
     fsdr = df_sdr[(df_sdr['Mês'].isin(meses_sel)) & (df_sdr['SDR'].isin(sdr_sel))].groupby('SDR')[['Previstas', 'Agendadas', 'Realizadas']].sum().reset_index()
     fvendas = df_vendas[(df_vendas['Mês'].isin(meses_sel)) & (df_vendas['SDR'].isin(sdr_sel))].groupby('SDR')['Valor'].sum().reset_index()
@@ -90,10 +109,8 @@ if df_sdr is not None:
     
     # --- SEÇÃO 2: TOP PERFORMERS - CARDS ESTILO FIFA ---
     st.markdown("## 🏆 Top Performers - Player Cards")
-    
     top3_data = fmetas.merge(fsdr, on='SDR', how='outer').merge(fvendas, on='SDR', how='outer').fillna(0)
     
-    # Normalização para escala 0-100 para o Radar
     max_realizadas = top3_data['Realizadas'].max() if top3_data['Realizadas'].max() > 0 else 1
     max_agendadas = top3_data['Agendadas'].max() if top3_data['Agendadas'].max() > 0 else 1
     max_valor = top3_data['Valor'].max() if top3_data['Valor'].max() > 0 else 1
@@ -102,11 +119,9 @@ if df_sdr is not None:
     top3_data['Qualif'] = (top3_data['Agendadas'] / max_agendadas * 100)
     top3_data['Conversão'] = (top3_data['Realizadas'] / top3_data['Previstas'].replace(0, 1) * 100)
     top3_data['Fechamento'] = (top3_data['Valor'] / max_valor * 100)
-    
-    # Score Geral
     top3_data['ScoreGeral'] = (top3_data['Pitch'] * 0.3 + top3_data['Qualif'] * 0.2 + top3_data['Conversão'] * 0.3 + top3_data['Fechamento'] * 0.2).astype(int)
-    top3 = top3_data.sort_values(by='ScoreGeral', ascending=False).head(3)
     
+    top3 = top3_data.sort_values(by='ScoreGeral', ascending=False).head(3)
     col1, col2, col3 = st.columns(3)
     cols = [col1, col2, col3]
 
@@ -122,42 +137,27 @@ if df_sdr is not None:
                     <hr style="border-color: #4D4D4D; margin: 10px 0;">
                 </div>
             """, unsafe_allow_html=True)
-            
             categories = ['Pitch', 'Qualif', 'Conversão', 'Fechamento']
-            fig = go.Figure()
-            fig.add_trace(go.Scatterpolar(
-                r=[row['Pitch'], row['Qualif'], row['Conversão'], row['Fechamento']],
-                theta=categories,
-                fill='toself',
-                fillcolor='rgba(0, 204, 150, 0.5)',
-                line=dict(color='#00CC96'),
-                name=row['SDR']
-            ))
-            fig.update_layout(
-                polar=dict(radialaxis=dict(visible=True, range=[0, 100], gridcolor='#30363D', linecolor='#30363D'),
-                           angularaxis=dict(gridcolor='#30363D', linecolor='#30363D'),
-                           bgcolor='#161B22'),
-                paper_bgcolor='rgba(0,0,0,0)',
-                font_color='white',
-                margin=dict(l=40, r=40, t=20, b=20),
-                height=300
-            )
+            fig = go.Figure(go.Scatterpolar(r=[row['Pitch'], row['Qualif'], row['Conversão'], row['Fechamento']], theta=categories, fill='toself', fillcolor='rgba(0, 204, 150, 0.5)', line=dict(color='#00CC96')))
+            fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100], gridcolor='#30363D'), bgcolor='#161B22'), paper_bgcolor='rgba(0,0,0,0)', font_color='white', height=300, margin=dict(l=40, r=40, t=20, b=20))
             st.plotly_chart(fig, use_container_width=True)
-            st.write(" ")
 
     st.markdown("---")
 
-    # --- SEÇÃO 3: TABELA DETALHADA ---
-    st.subheader("Detalhamento de Performance SDRs")
-    tabela_final = top3_data.copy()
-    tabela_final = tabela_final[tabela_final['SDR'].isin(sdr_sel)]
+    # --- SEÇÃO 3: TABELA DETALHADA COM MÉDIA DE DIAS ÚTEIS ---
+    st.subheader(f"Detalhamento de Performance SDRs (Base: {total_dias_uteis} dias úteis)")
+    tabela_final = top3_data[top3_data['SDR'].isin(sdr_sel)].copy()
+    
+    # NOVO CÁLCULO
+    tabela_final['Média Diária'] = (tabela_final['Agendadas'] / total_dias_uteis).apply(lambda x: f"{x:.2f}")
+    
     tabela_final['% Conv.'] = (tabela_final['Realizadas'] / tabela_final['Previstas'].replace(0, 1) * 100).apply(lambda x: f"{x:.1f}%")
     
     tabela_disp = tabela_final.copy()
     tabela_disp['Meta_Receita'] = tabela_disp['Meta_Receita'].apply(lambda x: f"$ {x:,.2f}")
     tabela_disp['Valor'] = tabela_disp['Valor'].apply(lambda x: f"$ {x:,.2f}")
     
-    cols_view = ['SDR', 'Meta_Reunioes', 'Previstas', 'Agendadas', 'Realizadas', '% Conv.', 'Meta_Receita', 'Valor']
+    cols_view = ['SDR', 'Meta_Reunioes', 'Previstas', 'Agendadas', 'Média Diária', 'Realizadas', '% Conv.', 'Meta_Receita', 'Valor']
     st.dataframe(tabela_disp[cols_view], use_container_width=True, hide_index=True)
     
     st.markdown("---")
@@ -180,7 +180,7 @@ if df_sdr is not None:
         fig_funil.update_layout(barmode='group', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white')
         st.plotly_chart(fig_funil, use_container_width=True)
 
-    # --- SEÇÃO 5: RAIOX MQL (COM ADIÇÃO DE QUEBRA MENSAL) ---
+    # --- SEÇÃO 5: RAIOX MQL (ATUALIZADO POR MÊS) ---
     st.markdown("---")
     st.header(f"🎯 RaioX MQL: Qualidade do Marketing")
     
@@ -195,12 +195,10 @@ if df_sdr is not None:
     k2.metric("Total Leads Lost", lost_total)
     k3.metric("Indice de Aproveitamento", f"{qualidade_mkt:.1f}%")
 
-    # ADIÇÃO: QUEBRA POR MÊS DAS ENTRADAS DE OPS
     st.subheader("Entrada de Ops por Mês")
     if not df_mql_filtrado.empty:
         ops_por_mes = df_mql_filtrado.groupby('Mês')['Entrada MQL'].sum().reset_index()
-        # Ordenar os meses se necessário (pode adicionar lógica de sort aqui se desejar)
-        cols_meses = st.columns(len(ops_por_mes) if len(ops_por_mes) > 0 else 1)
+        cols_meses = st.columns(max(len(ops_por_mes), 1))
         for idx, row in ops_por_mes.iterrows():
             with cols_meses[idx]:
                 st.metric(label=f"Ops em {row['Mês']}", value=int(row['Entrada MQL']))
