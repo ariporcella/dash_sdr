@@ -62,7 +62,6 @@ if df_sdr is not None:
     # --- PROCESSAMENTO ---
     fsdr = df_sdr[(df_sdr['Mês'].isin(meses_sel)) & (df_sdr['SDR'].isin(sdr_sel))].groupby('SDR')[['Previstas', 'Agendadas', 'Realizadas']].sum().reset_index()
     fvendas = df_vendas[(df_vendas['Mês'].isin(meses_sel)) & (df_vendas['SDR'].isin(sdr_sel))].groupby('SDR')['Valor'].sum().reset_index()
-    # CORREÇÃO: Usando fmetas com os filtros corretos
     fmetas = df_metas[(df_metas['Mês'].isin(meses_sel)) & (df_metas['SDR'].isin(sdr_sel))].groupby('SDR')[['Meta_Receita', 'Meta_Reunioes']].sum().reset_index()
     
     # CORREÇÃO: MQL AGORA USA O MESMO FILTRO DE MESES
@@ -72,30 +71,29 @@ if df_sdr is not None:
     st.title("⚡ SDR Global Performance")
     st.markdown("---")
     
-    # --- SEÇÃO 1: MÉTRICAS PRINCIPAIS (ATUALIZADA) ---
+    # --- SEÇÃO 1: MÉTRICAS PRINCIPAIS (ORDEM REORGANIZADA) ---
     st.subheader("Visão Geral")
     
-    # Aumentando para 6 colunas para caber as novas informações
+    # 6 colunas para a nova organização
     m1, m2, m3, m4, m5, m6 = st.columns(6)
     
+    # Processamento dos valores
     receita_atual = fvendas['Valor'].sum()
     meta_receita_total = fmetas['Meta_Receita'].sum()
     total_agendadas = fsdr['Agendadas'].sum()
     total_realizadas = fsdr['Realizadas'].sum()
-    
-    # Novas Métricas
     total_previstas = fsdr['Previstas'].sum()
     total_meta_reunioes = fmetas['Meta_Reunioes'].sum()
     
     taxa_conv = (total_realizadas / total_previstas * 100) if total_previstas > 0 else 0
-    
-    m1.metric("Receita Atual", f"$ {receita_atual:,.2f}")
-    m2.metric("Meta Receita", f"$ {meta_receita_total:,.2f}")
-    m3.metric("Agendamentos", int(total_agendadas))
-    m4.metric("Eficiência %", f"{taxa_conv:.1f}%")
-    # Adicionando os novos campos
-    m5.metric("Meta Agendamentos", int(total_meta_reunioes))
-    m6.metric("Reuniões Previstas", int(total_previstas))
+
+    # ORDEM: Meta Receita, Receita Atual, Meta Agendamentos, Reuniões Previstas, Agendamentos, Eficiência
+    m1.metric("Meta Receita", f"$ {meta_receita_total:,.2f}")
+    m2.metric("Receita Atual", f"$ {receita_atual:,.2f}")
+    m3.metric("Meta Agendamentos", int(total_meta_reunioes))
+    m4.metric("Reuniões Previstas", int(total_previstas))
+    m5.metric("Agendamentos", int(total_agendadas))
+    m6.metric("Eficiência %", f"{taxa_conv:.1f}%")
 
     st.markdown("---")
     
