@@ -62,6 +62,7 @@ if df_sdr is not None:
     # --- PROCESSAMENTO ---
     fsdr = df_sdr[(df_sdr['Mês'].isin(meses_sel)) & (df_sdr['SDR'].isin(sdr_sel))].groupby('SDR')[['Previstas', 'Agendadas', 'Realizadas']].sum().reset_index()
     fvendas = df_vendas[(df_vendas['Mês'].isin(meses_sel)) & (df_vendas['SDR'].isin(sdr_sel))].groupby('SDR')['Valor'].sum().reset_index()
+    # CORREÇÃO: Usando fmetas com os filtros corretos
     fmetas = df_metas[(df_metas['Mês'].isin(meses_sel)) & (df_metas['SDR'].isin(sdr_sel))].groupby('SDR')[['Meta_Receita', 'Meta_Reunioes']].sum().reset_index()
     
     # CORREÇÃO: MQL AGORA USA O MESMO FILTRO DE MESES
@@ -71,24 +72,37 @@ if df_sdr is not None:
     st.title("⚡ SDR Global Performance")
     st.markdown("---")
     
-    # --- SEÇÃO 1: MÉTRICAS PRINCIPAIS ---
+    # --- SEÇÃO 1: MÉTRICAS PRINCIPAIS (ATUALIZADA) ---
     st.subheader("Visão Geral")
-    m1, m2, m3, m4 = st.columns(4)
+    
+    # Aumentando para 6 colunas para caber as novas informações
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    
     receita_atual = fvendas['Valor'].sum()
     meta_receita_total = fmetas['Meta_Receita'].sum()
     total_agendadas = fsdr['Agendadas'].sum()
     total_realizadas = fsdr['Realizadas'].sum()
-    taxa_conv = (total_realizadas / fsdr['Previstas'].sum() * 100) if fsdr['Previstas'].sum() > 0 else 0
+    
+    # Novas Métricas
+    total_previstas = fsdr['Previstas'].sum()
+    total_meta_reunioes = fmetas['Meta_Reunioes'].sum()
+    
+    taxa_conv = (total_realizadas / total_previstas * 100) if total_previstas > 0 else 0
+    
     m1.metric("Receita Atual", f"$ {receita_atual:,.2f}")
     m2.metric("Meta Receita", f"$ {meta_receita_total:,.2f}")
     m3.metric("Agendamentos", int(total_agendadas))
     m4.metric("Eficiência %", f"{taxa_conv:.1f}%")
+    # Adicionando os novos campos
+    m5.metric("Meta Agendamentos", int(total_meta_reunioes))
+    m6.metric("Reuniões Previstas", int(total_previstas))
 
     st.markdown("---")
     
     # --- SEÇÃO 2: TOP PERFORMERS - CARDS ESTILO FIFA ---
     st.markdown("## 🏆 Top Performers - Player Cards")
     
+    # Re-calculando top3_data com filtros atualizados
     top3_data = fmetas.merge(fsdr, on='SDR', how='outer').merge(fvendas, on='SDR', how='outer').fillna(0)
     
     # Normalização para escala 0-100
@@ -184,8 +198,7 @@ if df_sdr is not None:
 
     st.markdown("---")
     
-    # --- SEÇÃO 5: RAIOX MQL (Métricas destacadas) ---
-    # AGORA MOSTRA O MÊS SELECIONADO NO FILTRO
+    # --- SEÇÃO 5: RAIOX MQL ---
     st.header(f"🎯 RaioX MQL: Qualidade do Marketing - {', '.join(meses_sel)}")
     
     mql_total = df_mql_filtrado['Entrada MQL'].sum()
@@ -197,7 +210,6 @@ if df_sdr is not None:
     k1.metric("Entrada MQL", int(mql_total))
     k2.metric("Leads Lost", lost_total)
     
-    # --- CORREÇÃO DA LINHA 200: FECHAMENTO DOS PARENTESES ---
     qualidade_mkt = ((mql_total - lost_total) / mql_total * 100) if mql_total > 0 else 0
     k3.metric("Indice de Aproveitamento", f"{qualidade_mkt:.1f}%")
 
