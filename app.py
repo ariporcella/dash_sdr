@@ -31,6 +31,7 @@ st.markdown("""
 @st.cache_data(ttl=60)
 def load_all_data():
     try:
+        # Carregamento forçando strings para colunas de texto e limpando espaços
         df_sdr = pd.read_csv(URL_BASE).fillna(0)
         df_vendas = pd.read_csv(URL_VENDAS).fillna(0)
         df_metas = pd.read_csv(URL_METAS).fillna(0)
@@ -38,13 +39,20 @@ def load_all_data():
         
         for df in [df_sdr, df_vendas, df_metas, df_mql]:
             df.columns = df.columns.str.strip()
+            if 'Mês' in df.columns:
+                df['Mês'] = df['Mês'].astype(str).str.strip()
+            if 'SDR' in df.columns:
+                df['SDR'] = df['SDR'].astype(str).str.strip()
+
+        # CONVERSÃO EXPLÍCITA PARA NÚMERO (Garante que "46" e "88" sejam somáveis)
+        if 'Entrada MQL' in df_mql.columns:
+            df_mql['Entrada MQL'] = pd.to_numeric(df_mql['Entrada MQL'], errors='coerce').fillna(0)
+        if 'Meta_Reunioes' in df_metas.columns:
+            df_metas['Meta_Reunioes'] = pd.to_numeric(df_metas['Meta_Reunioes'], errors='coerce').fillna(0)
             
-        if 'Mês' in df_mql.columns:
-            df_mql['Mês'] = df_mql['Mês'].astype(str).str.strip()
-            
-        # CORREÇÃO: Padronizar motivos para evitar duplicidade (Perfil fraco vs Perfil Fraco)
+        # PADRONIZAÇÃO DE TEXTO PARA PERDAS
         if 'Motivo da perda' in df_mql.columns:
-            df_mql['Motivo da perda'] = df_mql['Motivo da perda'].str.strip().str.capitalize()
+            df_mql['Motivo da perda'] = df_mql['Motivo da perda'].astype(str).str.strip().str.capitalize()
             
         return df_sdr, df_vendas, df_metas, df_mql
     except Exception as e:
@@ -61,15 +69,20 @@ meses_dict = {
 if df_sdr is not None:
     # --- FILTROS LATERAIS ---
     st.sidebar.markdown("## ⚙️ Configurações")
-    meses_disponiveis = sorted([str(m) for m in df_sdr['Mês'].unique() if pd.notna(m) and m != '0'])
+    meses_disponiveis = sorted([str(m) for m in df_sdr['Mês'].unique() if pd.notna(m) and m not in ['0', 'nan']])
     meses_sel = st.sidebar.multiselect("Selecionar Meses", options=meses_disponiveis, default=[meses_disponiveis[-1]] if meses_disponiveis else [])
     
     todos_sdrs = pd.concat([df_sdr['SDR'], df_metas['SDR'], df_vendas['SDR']]).unique()
     sdrs_globais = sorted([str(s) for s in todos_sdrs if pd.notna(s) and s not in ['0', 'nan', '0.0']])
     sdr_sel = st.sidebar.multiselect("Selecionar SDRs", options=sdrs_globais, default=sdrs_globais)
-    st.sidebar.markdown("---")
     
-    # --- CÁLCULO DE DIAS ÚTEIS ---
+    # --- PROCESSAMENTO ---
+    fsdr = df_sdr[(df_sdr['Mês'].isin(meses_sel)) & (df_sdr['SDR'].isin(sdr_sel))].groupby('SDR')[['Previstas', 'Agendadas', 'Realizadas']].sum().reset_index()
+    fvendas = df_vendas[(df_vendas['Mês'].isin(meses_sel)) & (df_vendas['SDR'].isin(sdr_sel))].groupby('SDR')['Valor'].sum().reset_index()
+    fmetas = df_metas[(df_metas['Mês'].isin(meses_sel)) & (df_metas['SDR'].isin(sdr_sel))].groupby('SDR')[['Meta_Receita', 'Meta_Reunioes']].sum().reset_index()
+    df_mql_filtrado = df_mql[df_mql['Mês'].isin(meses_sel)]
+
+    # --- DIAS ÚTEIS ---
     total_dias_uteis = 0
     for m in meses_sel:
         if m in meses_dict:
@@ -78,13 +91,7 @@ if df_sdr is not None:
             ultimo_dia = calendar.monthrange(ano_atual, mes_num)[1]
             total_dias_uteis += np.busday_count(f'{ano_atual}-{mes_num:02d}-01', 
                                                 datetime(ano_atual, mes_num, ultimo_dia).strftime('%Y-%m-%d')) + 1
-    if total_dias_uteis == 0: total_dias_uteis = 1
-
-    # --- PROCESSAMENTO ---
-    fsdr = df_sdr[(df_sdr['Mês'].isin(meses_sel)) & (df_sdr['SDR'].isin(sdr_sel))].groupby('SDR')[['Previstas', 'Agendadas', 'Realizadas']].sum().reset_index()
-    fvendas = df_vendas[(df_vendas['Mês'].isin(meses_sel)) & (df_vendas['SDR'].isin(sdr_sel))].groupby('SDR')['Valor'].sum().reset_index()
-    fmetas = df_metas[(df_metas['Mês'].isin(meses_sel)) & (df_metas['SDR'].isin(sdr_sel))].groupby('SDR')[['Meta_Receita', 'Meta_Reunioes']].sum().reset_index()
-    df_mql_filtrado = df_mql[df_mql['Mês'].isin(meses_sel)]
+    total_dias_uteis = max(total_dias_uteis, 1)
 
     # --- DASHBOARD PRINCIPAL ---
     st.title("⚡ SDR Global Performance")
@@ -99,7 +106,7 @@ if df_sdr is not None:
     total_agendadas = fsdr['Agendadas'].sum()
     total_realizadas = fsdr['Realizadas'].sum()
     total_previstas = fsdr['Previstas'].sum()
-    total_meta_reunioes = fmetas['Meta_Reunioes'].sum()
+    total_meta_reunioes = fmetas['Meta_Reunioes'].sum() # Aqui deve aparecer a soma das metas (ex: 88*5)
     taxa_conv = (total_realizadas / total_previstas * 100) if total_previstas > 0 else 0
 
     m1.metric("Meta Receita", f"$ {meta_receita_total:,.2f}")
@@ -116,9 +123,10 @@ if df_sdr is not None:
     st.markdown("## 🏆 Top Performers - Player Cards")
     top3_data = fmetas.merge(fsdr, on='SDR', how='outer').merge(fvendas, on='SDR', how='outer').fillna(0)
     
-    max_realizadas = top3_data['Realizadas'].max() if top3_data['Realizadas'].max() > 0 else 1
-    max_agendadas = top3_data['Agendadas'].max() if top3_data['Agendadas'].max() > 0 else 1
-    max_valor = top3_data['Valor'].max() if top3_data['Valor'].max() > 0 else 1
+    # Cálculos para o radar chart
+    max_realizadas = max(top3_data['Realizadas'].max(), 1)
+    max_agendadas = max(top3_data['Agendadas'].max(), 1)
+    max_valor = max(top3_data['Valor'].max(), 1)
     
     top3_data['Pitch'] = (top3_data['Realizadas'] / max_realizadas * 100)
     top3_data['Qualif'] = (top3_data['Agendadas'] / max_agendadas * 100)
@@ -156,20 +164,9 @@ if df_sdr is not None:
     
     st.markdown("---")
     
-    # --- SEÇÃO 4: GRÁFICOS ---
-    cl, cr = st.columns(2)
-    with cl:
-        st.subheader("Receita por SDR")
-        st.plotly_chart(px.bar(fvendas, x='SDR', y='Valor', color='Valor', color_continuous_scale='Viridis', text_auto='$.2s').update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white'), use_container_width=True)
-    with cr:
-        st.subheader("Funil de Atividades")
-        fig_f = go.Figure([go.Bar(name='Previstas', x=fsdr['SDR'], y=fsdr['Previstas'], marker_color='#30363D'), go.Bar(name='Agendadas', x=fsdr['SDR'], y=fsdr['Agendadas'], marker_color='#58A6FF'), go.Bar(name='Realizadas', x=fsdr['SDR'], y=fsdr['Realizadas'], marker_color='#00CC96')])
-        st.plotly_chart(fig_f.update_layout(barmode='group', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white'), use_container_width=True)
-
-    # --- SEÇÃO 5: RAIOX MQL ---
-    st.markdown("---")
+    # --- SEÇÃO 4: RAIOX MQL ---
     st.header(f"🎯 RaioX MQL: Qualidade do Marketing")
-    mql_total = df_mql_filtrado['Entrada MQL'].sum()
+    mql_total = df_mql_filtrado['Entrada MQL'].sum() # Deve mostrar 46 se Março estiver selecionado
     termos_lost = ['Perfil fraco', 'Curioso', 'Sem interesse', 'Cold', 'Não estava interessado']
     df_lost = df_mql_filtrado[df_mql_filtrado['Motivo da perda'].str.contains('|'.join(termos_lost), na=False, case=False)]
     lost_total = len(df_lost)
@@ -188,8 +185,8 @@ if df_sdr is not None:
             with cols_meses[idx]:
                 st.metric(label=f"Ops em {row['Mês']}", value=int(row['Entrada MQL']))
     
+    st.subheader("Detalhamento Perdas (Qtd)")
     if not df_lost.empty:
-        st.subheader("Detalhamento Perdas (Qtd)")
         contagem_motivos = df_lost['Motivo da perda'].value_counts()
         cols_p = st.columns(len(contagem_motivos))
         for i, (motivo, quantidade) in enumerate(contagem_motivos.items()):
