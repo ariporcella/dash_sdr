@@ -35,10 +35,17 @@ def load_all_data():
         df_vendas = pd.read_csv(URL_VENDAS).fillna(0)
         df_metas = pd.read_csv(URL_METAS).fillna(0)
         df_mql = pd.read_csv(URL_MQL).fillna(0)
+        
         for df in [df_sdr, df_vendas, df_metas, df_mql]:
             df.columns = df.columns.str.strip()
+            
         if 'Mês' in df_mql.columns:
             df_mql['Mês'] = df_mql['Mês'].astype(str).str.strip()
+            
+        # CORREÇÃO: Padronizar motivos para evitar duplicidade (Perfil fraco vs Perfil Fraco)
+        if 'Motivo da perda' in df_mql.columns:
+            df_mql['Motivo da perda'] = df_mql['Motivo da perda'].str.strip().str.capitalize()
+            
         return df_sdr, df_vendas, df_metas, df_mql
     except Exception as e:
         st.error(f"Erro ao sincronizar dados: {e}")
@@ -46,7 +53,6 @@ def load_all_data():
 
 df_sdr, df_vendas, df_metas, df_mql = load_all_data()
 
-# Dicionário para converter nome do mês em número
 meses_dict = {
     'Janeiro': 1, 'Fevereiro': 2, 'Março': 3, 'Abril': 4, 'Maio': 5, 'Junho': 6,
     'Julho': 7, 'Agosto': 8, 'Setembro': 9, 'Outubro': 10, 'Novembro': 11, 'Dezembro': 12
@@ -56,9 +62,7 @@ if df_sdr is not None:
     # --- FILTROS LATERAIS ---
     st.sidebar.markdown("## ⚙️ Configurações")
     meses_disponiveis = sorted([str(m) for m in df_sdr['Mês'].unique() if pd.notna(m) and m != '0'])
-    mes_padrao = [meses_disponiveis[-1]] if meses_disponiveis else []
-    
-    meses_sel = st.sidebar.multiselect("Selecionar Meses", options=meses_disponiveis, default=mes_padrao)
+    meses_sel = st.sidebar.multiselect("Selecionar Meses", options=meses_disponiveis, default=[meses_disponiveis[-1]] if meses_disponiveis else [])
     
     todos_sdrs = pd.concat([df_sdr['SDR'], df_metas['SDR'], df_vendas['SDR']]).unique()
     sdrs_globais = sorted([str(s) for s in todos_sdrs if pd.notna(s) and s not in ['0', 'nan', '0.0']])
@@ -74,7 +78,7 @@ if df_sdr is not None:
             ultimo_dia = calendar.monthrange(ano_atual, mes_num)[1]
             total_dias_uteis += np.busday_count(f'{ano_atual}-{mes_num:02d}-01', 
                                                 datetime(ano_atual, mes_num, ultimo_dia).strftime('%Y-%m-%d')) + 1
-    if total_dias_uteis == 0: total_dias_uteis = 1 # Evitar divisão por zero
+    if total_dias_uteis == 0: total_dias_uteis = 1
 
     # --- PROCESSAMENTO ---
     fsdr = df_sdr[(df_sdr['Mês'].isin(meses_sel)) & (df_sdr['SDR'].isin(sdr_sel))].groupby('SDR')[['Previstas', 'Agendadas', 'Realizadas']].sum().reset_index()
@@ -88,29 +92,27 @@ if df_sdr is not None:
     
     # --- SEÇÃO 1: MÉTRICAS PRINCIPAIS ---
     st.subheader("Visão Geral")
-    
-    # Ajustado para 7 colunas para comportar a nova info
     m1, m2, m3, m4, m5, m6, m7 = st.columns(7)
     
     receita_atual = fvendas['Valor'].sum()
     meta_receita_total = fmetas['Meta_Receita'].sum()
     total_agendadas = fsdr['Agendadas'].sum()
-    total_realizadas_numerico = fsdr['Realizadas'].sum() # NOVA MÉTRICA
+    total_realizadas = fsdr['Realizadas'].sum()
     total_previstas = fsdr['Previstas'].sum()
     total_meta_reunioes = fmetas['Meta_Reunioes'].sum()
-    taxa_conv = (total_realizadas_numerico / total_previstas * 100) if total_previstas > 0 else 0
+    taxa_conv = (total_realizadas / total_previstas * 100) if total_previstas > 0 else 0
 
     m1.metric("Meta Receita", f"$ {meta_receita_total:,.2f}")
     m2.metric("Receita Atual", f"$ {receita_atual:,.2f}")
     m3.metric("Meta Agend.", int(total_meta_reunioes))
     m4.metric("Previstas", int(total_previstas))
     m5.metric("Agendamentos", int(total_agendadas))
-    m6.metric("Realizadas", int(total_realizadas_numerico)) # ATUALIZADO
+    m6.metric("Realizadas", int(total_realizadas))
     m7.metric("Eficiência %", f"{taxa_conv:.1f}%")
 
     st.markdown("---")
     
-    # --- SEÇÃO 2: TOP PERFORMERS - CARDS ESTILO FIFA ---
+    # --- SEÇÃO 2: TOP PERFORMERS ---
     st.markdown("## 🏆 Top Performers - Player Cards")
     top3_data = fmetas.merge(fsdr, on='SDR', how='outer').merge(fvendas, on='SDR', how='outer').fillna(0)
     
@@ -129,29 +131,19 @@ if df_sdr is not None:
     cols = [col1, col2, col3]
 
     for i, (_, row) in enumerate(top3.iterrows()):
-        with cols[i]:
-            st.markdown(f"""
-                <div style="background: linear-gradient(135deg, #161B22 0%, #30363D 100%); padding: 20px; border-radius: 20px; text-align: center; border: 3px solid {'#FFD700' if i==0 else '#C0C0C0' if i==1 else '#CD7F32'}; box-shadow: 5px 5px 15px rgba(0,0,0,0.5);">
-                    <div style="display: flex; justify-content: space-between; color: white; font-weight: bold; font-size: 1.2vw;">
-                        <span>{row['ScoreGeral']}</span>
-                        <span>ST</span>
-                    </div>
-                    <div style="font-size: 1.5vw; font-weight: bold; color: white; margin-top: 10px;">{row['SDR']}</div>
-                    <hr style="border-color: #4D4D4D; margin: 10px 0;">
-                </div>
-            """, unsafe_allow_html=True)
-            categories = ['Pitch', 'Qualif', 'Conversão', 'Fechamento']
-            fig = go.Figure(go.Scatterpolar(r=[row['Pitch'], row['Qualif'], row['Conversão'], row['Fechamento']], theta=categories, fill='toself', fillcolor='rgba(0, 204, 150, 0.5)', line=dict(color='#00CC96')))
-            fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100], gridcolor='#30363D'), bgcolor='#161B22'), paper_bgcolor='rgba(0,0,0,0)', font_color='white', height=300, margin=dict(l=40, r=40, t=20, b=20))
-            st.plotly_chart(fig, use_container_width=True)
+        if i < len(cols):
+            with cols[i]:
+                st.markdown(f"""<div style="background: linear-gradient(135deg, #161B22 0%, #30363D 100%); padding: 20px; border-radius: 20px; text-align: center; border: 3px solid {'#FFD700' if i==0 else '#C0C0C0' if i==1 else '#CD7F32'}; box-shadow: 5px 5px 15px rgba(0,0,0,0.5);"><div style="display: flex; justify-content: space-between; color: white; font-weight: bold; font-size: 1.2vw;"><span>{row['ScoreGeral']}</span><span>ST</span></div><div style="font-size: 1.5vw; font-weight: bold; color: white; margin-top: 10px;">{row['SDR']}</div><hr style="border-color: #4D4D4D; margin: 10px 0;"></div>""", unsafe_allow_html=True)
+                categories = ['Pitch', 'Qualif', 'Conversão', 'Fechamento']
+                fig = go.Figure(go.Scatterpolar(r=[row['Pitch'], row['Qualif'], row['Conversão'], row['Fechamento']], theta=categories, fill='toself', fillcolor='rgba(0, 204, 150, 0.5)', line=dict(color='#00CC96')))
+                fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100], gridcolor='#30363D'), bgcolor='#161B22'), paper_bgcolor='rgba(0,0,0,0)', font_color='white', height=300, margin=dict(l=40, r=40, t=20, b=20))
+                st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("---")
 
     # --- SEÇÃO 3: TABELA DETALHADA ---
     st.subheader(f"Detalhamento de Performance SDRs (Base: {total_dias_uteis} dias úteis)")
     tabela_final = top3_data[top3_data['SDR'].isin(sdr_sel)].copy()
-    
-    # CÁLCULO E FORMATAÇÃO
     tabela_final['% Conv.'] = (tabela_final['Realizadas'] / tabela_final['Previstas'].replace(0, 1) * 100).apply(lambda x: f"{x:.1f}%")
     tabela_final['Média Diária'] = (tabela_final['Agendadas'] / total_dias_uteis).apply(lambda x: f"{x:.2f}")
     
@@ -159,7 +151,6 @@ if df_sdr is not None:
     tabela_disp['Meta_Receita'] = tabela_disp['Meta_Receita'].apply(lambda x: f"$ {x:,.2f}")
     tabela_disp['Valor'] = tabela_disp['Valor'].apply(lambda x: f"$ {x:,.2f}")
     
-    # REORDENAÇÃO DAS COLUNAS SOLICITADA
     cols_view = ['SDR', 'Meta_Reunioes', 'Previstas', 'Agendadas', 'Realizadas', '% Conv.', 'Média Diária', 'Meta_Receita', 'Valor']
     st.dataframe(tabela_disp[cols_view], use_container_width=True, hide_index=True)
     
@@ -179,7 +170,7 @@ if df_sdr is not None:
     st.markdown("---")
     st.header(f"🎯 RaioX MQL: Qualidade do Marketing")
     mql_total = df_mql_filtrado['Entrada MQL'].sum()
-    termos_lost = ['Perfil fraco', 'Curioso', 'Sem interesse', 'COLD', 'não estava interessado']
+    termos_lost = ['Perfil fraco', 'Curioso', 'Sem interesse', 'Cold', 'Não estava interessado']
     df_lost = df_mql_filtrado[df_mql_filtrado['Motivo da perda'].str.contains('|'.join(termos_lost), na=False, case=False)]
     lost_total = len(df_lost)
     qualidade_mkt = ((mql_total - lost_total) / mql_total * 100) if mql_total > 0 else 0
