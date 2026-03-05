@@ -31,6 +31,7 @@ st.markdown("""
 @st.cache_data(ttl=60)
 def load_all_data():
     try:
+        # Carregamento forçando strings para colunas de texto e limpando espaços
         df_sdr = pd.read_csv(URL_BASE).fillna(0)
         df_vendas = pd.read_csv(URL_VENDAS).fillna(0)
         df_metas = pd.read_csv(URL_METAS).fillna(0)
@@ -43,11 +44,13 @@ def load_all_data():
             if 'SDR' in df.columns:
                 df['SDR'] = df['SDR'].astype(str).str.strip()
 
+        # CONVERSÃO EXPLÍCITA PARA NÚMERO (Garante que "46" e "88" sejam somáveis)
         if 'Entrada MQL' in df_mql.columns:
             df_mql['Entrada MQL'] = pd.to_numeric(df_mql['Entrada MQL'], errors='coerce').fillna(0)
         if 'Meta_Reunioes' in df_metas.columns:
             df_metas['Meta_Reunioes'] = pd.to_numeric(df_metas['Meta_Reunioes'], errors='coerce').fillna(0)
             
+        # PADRONIZAÇÃO DE TEXTO PARA PERDAS
         if 'Motivo da perda' in df_mql.columns:
             df_mql['Motivo da perda'] = df_mql['Motivo da perda'].astype(str).str.strip().str.capitalize()
             
@@ -103,10 +106,8 @@ if df_sdr is not None:
     total_agendadas = fsdr['Agendadas'].sum()
     total_realizadas = fsdr['Realizadas'].sum()
     total_previstas = fsdr['Previstas'].sum()
-    total_meta_reunioes = fmetas['Meta_Reunioes'].sum() 
-    
-    # ATUALIZAÇÃO DA TAXA: Agora Realizadas / Agendadas
-    taxa_showup = (total_realizadas / total_agendadas * 100) if total_agendadas > 0 else 0
+    total_meta_reunioes = fmetas['Meta_Reunioes'].sum() # Aqui deve aparecer a soma das metas (ex: 88*5)
+    taxa_conv = (total_realizadas / total_previstas * 100) if total_previstas > 0 else 0
 
     m1.metric("Meta Receita", f"$ {meta_receita_total:,.2f}")
     m2.metric("Receita Atual", f"$ {receita_atual:,.2f}")
@@ -114,7 +115,7 @@ if df_sdr is not None:
     m4.metric("Previstas", int(total_previstas))
     m5.metric("Agendamentos", int(total_agendadas))
     m6.metric("Realizadas", int(total_realizadas))
-    m7.metric("Show-up %", f"{taxa_showup:.1f}%")
+    m7.metric("Eficiência %", f"{taxa_conv:.1f}%")
 
     st.markdown("---")
     
@@ -122,14 +123,14 @@ if df_sdr is not None:
     st.markdown("## 🏆 Top Performers - Player Cards")
     top3_data = fmetas.merge(fsdr, on='SDR', how='outer').merge(fvendas, on='SDR', how='outer').fillna(0)
     
+    # Cálculos para o radar chart
     max_realizadas = max(top3_data['Realizadas'].max(), 1)
     max_agendadas = max(top3_data['Agendadas'].max(), 1)
     max_valor = max(top3_data['Valor'].max(), 1)
     
     top3_data['Pitch'] = (top3_data['Realizadas'] / max_realizadas * 100)
     top3_data['Qualif'] = (top3_data['Agendadas'] / max_agendadas * 100)
-    # ATUALIZAÇÃO: Conversão interna baseada em Agendadas
-    top3_data['Conversão'] = (top3_data['Realizadas'] / top3_data['Agendadas'].replace(0, 1) * 100)
+    top3_data['Conversão'] = (top3_data['Realizadas'] / top3_data['Previstas'].replace(0, 1) * 100)
     top3_data['Fechamento'] = (top3_data['Valor'] / max_valor * 100)
     top3_data['ScoreGeral'] = (top3_data['Pitch'] * 0.3 + top3_data['Qualif'] * 0.2 + top3_data['Conversão'] * 0.3 + top3_data['Fechamento'] * 0.2).astype(int)
     
@@ -151,24 +152,21 @@ if df_sdr is not None:
     # --- SEÇÃO 3: TABELA DETALHADA ---
     st.subheader(f"Detalhamento de Performance SDRs (Base: {total_dias_uteis} dias úteis)")
     tabela_final = top3_data[top3_data['SDR'].isin(sdr_sel)].copy()
-    
-    # ATUALIZAÇÃO DA TABELA: Realizadas / Agendadas
-    tabela_final['% Show-up'] = (tabela_final['Realizadas'] / tabela_final['Agendadas'].replace(0, 1) * 100).apply(lambda x: f"{x:.1f}%")
+    tabela_final['% Conv.'] = (tabela_final['Realizadas'] / tabela_final['Previstas'].replace(0, 1) * 100).apply(lambda x: f"{x:.1f}%")
     tabela_final['Média Diária'] = (tabela_final['Agendadas'] / total_dias_uteis).apply(lambda x: f"{x:.2f}")
     
     tabela_disp = tabela_final.copy()
     tabela_disp['Meta_Receita'] = tabela_disp['Meta_Receita'].apply(lambda x: f"$ {x:,.2f}")
     tabela_disp['Valor'] = tabela_disp['Valor'].apply(lambda x: f"$ {x:,.2f}")
     
-    cols_view = ['SDR', 'Meta_Reunioes', 'Previstas', 'Agendadas', 'Realizadas', '% Show-up', 'Média Diária', 'Meta_Receita', 'Valor']
+    cols_view = ['SDR', 'Meta_Reunioes', 'Previstas', 'Agendadas', 'Realizadas', '% Conv.', 'Média Diária', 'Meta_Receita', 'Valor']
     st.dataframe(tabela_disp[cols_view], use_container_width=True, hide_index=True)
     
     st.markdown("---")
     
     # --- SEÇÃO 4: RAIOX MQL ---
-    # (Mantido igual, pois o cálculo de qualidade de MQL não mudou)
     st.header(f"🎯 RaioX MQL: Qualidade do Marketing")
-    mql_total = df_mql_filtrado['Entrada MQL'].sum()
+    mql_total = df_mql_filtrado['Entrada MQL'].sum() # Deve mostrar 46 se Março estiver selecionado
     termos_lost = ['Perfil fraco', 'Curioso', 'Sem interesse', 'Cold', 'Não estava interessado']
     df_lost = df_mql_filtrado[df_mql_filtrado['Motivo da perda'].str.contains('|'.join(termos_lost), na=False, case=False)]
     lost_total = len(df_lost)
